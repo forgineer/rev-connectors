@@ -1,6 +1,8 @@
 import requests
 
+
 bp_session = requests.Session()
+
 bp_session.headers.update({
     "username": "my.username",
     "password": "password",
