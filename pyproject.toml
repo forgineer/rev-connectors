@@ -1,0 +1,19 @@
+[project]
+name = "rev-connectors"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "polars>=1.30.0",
+    "pytest>=8.3.5",
+    "simple-salesforce>=1.12.6",
+    "stripe>=12.1.0",
+]
+
+[project.scripts]
+rev-connectors = "rev_connectors:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
