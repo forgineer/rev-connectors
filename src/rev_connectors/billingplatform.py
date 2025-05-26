@@ -8,16 +8,13 @@ class BillingPlatform(BaseConnector):
     def __init__(self, df: pl.DataFrame) -> None:
         self._df = df
 
-    def query(self) -> pl.DataFrame:
-        ...
-
     def create(self) -> pl.DataFrame:
         ...
 
-    def update(self) -> pl.DataFrame:
+    def read(self) -> pl.DataFrame:
         ...
 
-    def upsert(self) -> pl.DataFrame:
+    def update(self) -> pl.DataFrame:
         ...
 
     def delete(self) -> pl.DataFrame:
