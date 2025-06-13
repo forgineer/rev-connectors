@@ -1,29 +1,26 @@
 import polars as pl
-import pandas as pd
-from typing import Union
-from abc import ABC, abstractmethod
 
-DataFrame = Union[pl.DataFrame, pd.DataFrame]
+from abc import ABC, abstractmethod
 
 
 class BaseConnector(ABC):
     @abstractmethod
-    def __init__(self, df: DataFrame) -> None:
+    def __init__(self, df: pl.DataFrame) -> None:
         ...
 
     # Abstract methods for CRUD operations
     @abstractmethod
-    def create(self) -> DataFrame:
+    def create(self) -> pl.DataFrame:
         ...
 
     @abstractmethod
-    def read(self) -> DataFrame:
+    def read(self) -> pl.DataFrame:
         ...
 
     @abstractmethod
-    def update(self) -> DataFrame:
+    def update(self) -> pl.DataFrame:
         ...
 
     @abstractmethod
-    def delete(self) -> DataFrame:
+    def delete(self) -> pl.DataFrame:
         ...
