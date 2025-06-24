@@ -24,3 +24,4 @@ class BaseConnector(ABC):
     @abstractmethod
     def delete(self) -> pl.DataFrame:
         ...
+        
