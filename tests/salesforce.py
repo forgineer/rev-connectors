@@ -1,65 +1,73 @@
+import unittest
 import json
+from rev_connectors.salesforce import Salesforce
 import polars as pl
+import logging
 import time
-from rev_connectors import salesforce
+
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+
+class TestSalesforceConnector(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        # Load credentials once for all tests
+        with open('./tests/credentials.json', 'r') as f:
+            credentials = json.load(f)
+        cls.sf = Salesforce(
+            credentials={
+                'username': credentials['salesforce']['username'],
+                'password': credentials['salesforce']['password'],
+                'security_token': credentials['salesforce']['security_token'],
+                'domain': credentials['salesforce']['domain']
+            }
+        )
+        cls.data_query = """
+            SELECT 
+                Id, Name
+            FROM Account
+        """
+
+    def test_rest_query_returns_dataframe(self):
+        """Test that REST query returns a DataFrame with expected columns."""
+        start_time = time.time()
+        results = self.sf.read(soql=self.data_query, method='rest')
+        elapsed = time.time() - start_time
+        self.assertIsInstance(results, pl.DataFrame)
+        self.assertIn('Id', results.columns)
+        self.assertIn('Name', results.columns)
+        logger.info(f"REST Query returned {len(results)} records in {elapsed:.2f} seconds.")
+        logger.info("\n%s", results)
+
+    def test_bulk_query_returns_dataframe(self):
+        """Test that Bulk query returns a DataFrame with expected columns."""
+        start_time = time.time()
+        results = self.sf.read(soql=self.data_query, method='bulk')
+        elapsed = time.time() - start_time
+        self.assertIsInstance(results, pl.DataFrame)
+        self.assertIn('Id', results.columns)
+        self.assertIn('Name', results.columns)
+        logger.info(f"Bulk Query returned {len(results)} records in {elapsed:.2f} seconds.")
+        logger.info("\n%s", results)
+
+    def test_rest_query_returns_empty_dataframe(self):
+        """Test REST query that should return no results returns an empty DataFrame."""
+        empty_query = "SELECT Id FROM Account WHERE Name = 'DefinitelyNotARealName12345'"
+        results = self.sf.read(soql=empty_query, method='rest')
+        self.assertIsInstance(results, pl.DataFrame)
+        self.assertEqual(len(results), 0)
+        logger.info("Empty REST query returned 0 records as expected.")
+
+    def test_bulk_query_returns_empty_dataframe(self):
+        """Test Bulk query that should return no results returns an empty DataFrame."""
+        empty_query = "SELECT Id FROM Account WHERE Name = 'DefinitelyNotARealName12345'"
+        results = self.sf.read(soql=empty_query, method='bulk')
+        self.assertIsInstance(results, pl.DataFrame)
+        self.assertEqual(len(results), 0)
+        logger.info("Empty Bulk query returned 0 records as expected.")
 
 
 if __name__ == "__main__":
-
-    """" Sample credentials.json:
-        {
-            "salesforce": {
-                "username": "your_username",
-                "password": "your_password",
-                "security_token": "your_security_token",
-                "domain": "login",
-                "oauth_key": "your_api_key",
-                "oauth_secret": "your_api_secret"
-            }
-        }
-    """
-
-    # Load credentials from JSON file
-    with open('./tests/credentials.json', 'r') as f:
-        credentials = json.load(f)
-
-    # Define Query
-    data_query = """
-        SELECT 
-            Id 
-            , Name 
-        FROM Contact
-    """
-
-    # Initialize Salesforce client using simple-salesforce client adapter
-    sf = pl.DataFrame().salesforce
-    sf.set_client(salesforce.SimpleSalesforceClient(
-        credentials={
-            'username': credentials['salesforce']['username'],
-            'password': credentials['salesforce']['password'],
-            'security_token': credentials['salesforce']['security_token'],
-            'domain': credentials['salesforce']['domain']
-        }
-    ))
-    
-    ##### simple-salesforce REST Query (Polars) #####
-    start_time = time.time()
-
-    results = sf.read(input=data_query, 
-                      method='rest')
-    
-    print(results)
-    print(f"\nsimple-salesforce REST Query (Polars) execution time: {time.time() - start_time:.2f} seconds")
-    print(f"Records returned: {len(results)}")
-
-
-    ##### simple-salesforce Bulk Query #####
-    start_time = time.time()
-
-    bulk_results = sf.read(input=data_query, 
-                           method='bulk')
-  
-    print(bulk_results)
-    print(f"\nsimple-salesforce Bulk Query execution time: {time.time() - start_time:.2f} seconds")
-    print(f"Records returned: {len(bulk_results)}")
-    
+    unittest.main()
