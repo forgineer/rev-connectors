@@ -25,7 +25,7 @@ class Salesforce(BaseConnector):
                input_file: str = None,
                method: str = 'rest', 
                to_dataframe: bool = True, 
-               output_dir: str | None='results',
+               output_dir: str | None = 'results',
                upsert_key: str = None, 
                batch_size: int = 200, 
                all_or_none: bool = False) -> pl.DataFrame:
@@ -34,7 +34,7 @@ class Salesforce(BaseConnector):
             # Load data through REST API
             if method == 'rest':
                 results = []
-                for batch in batched(data, batch_size):
+                for batch in batched(data.to_dicts(), batch_size):
                     # Prepare batched records for load
                     records = [{"attributes": {"type": sobject}, **record} for record in batch]
                     composite_body = {"allOrNone": all_or_none, "records": records}
@@ -58,11 +58,11 @@ class Salesforce(BaseConnector):
             elif method == 'bulk2':
                 if upsert_key:
                     results = getattr(self.sf.bulk2, sobject).upsert(
-                        csv_file=input_file, records=data, external_id_field=upsert_key
+                        csv_file=input_file, records=data.to_dicts(), external_id_field=upsert_key
                     )
                 else:
                     results = getattr(self.sf.bulk2, sobject).insert(
-                        csv_file=input_file, records=data
+                        csv_file=input_file, records=data.to_dicts()
                     )
                 df = self._result_handler(results, to_dataframe, output_dir, sobject, ingest=True)
                 if to_dataframe:
@@ -107,13 +107,95 @@ class Salesforce(BaseConnector):
             logger.exception("Failed to execute Salesforce query")
             raise RuntimeError(f"Failed to execute Salesforce query: {str(e)}")
 
-    def update(self) -> pl.DataFrame:
-        """Not implemented."""
-        ...
+    def update(self, 
+               sobject: str, 
+               data: pl.DataFrame = None, 
+               input_file: str = None,
+               method: str = 'rest', 
+               to_dataframe: bool = True, 
+               output_dir: str | None = 'results',
+               batch_size: int = 200, 
+               all_or_none: bool = False) -> pl.DataFrame:
+        """Execute a Batched REST or Bulk - Update operation."""
+        try:
+            # Update data through REST API
+            if method == 'rest':
+                results = []
+                for batch in batched(data.to_dicts(), batch_size):
+                    # Prepare batched records for update
+                    records = [{"attributes": {"type": sobject}, **record} for record in batch]
+                    composite_body = {"allOrNone": all_or_none, "records": records}
+                    url = f"https://{self.sf.sf_instance}/services/data/v{self.version}/composite/sobjects/"
+                    response = requests.patch(url=url, headers=self.headers, json=composite_body)
+                    response.raise_for_status()
+                    batch_results = response.json()
+                    # Join Fields to results
+                    for i, result in enumerate(batch_results):
+                        for key, value in batch[i].items():
+                            result[key] = value
+                    results.extend(batch_results)
+                return pl.DataFrame(results)
+            
+            # Update data through Bulk2 API
+            elif method == 'bulk2':
+                results = getattr(self.sf.bulk2, sobject).update(csv_file=input_file, records=data.to_dicts())
+                df = self._result_handler(results, to_dataframe, output_dir, sobject, ingest=True)
+                if to_dataframe:
+                    return df
+        except Exception as e:
+            logger.exception("Failed to execute Salesforce update")
+            raise RuntimeError(f"Failed to execute Salesforce update: {str(e)}")
 
-    def delete(self) -> pl.DataFrame:
-        """Not implemented."""
-        ...
+    def delete(self, 
+               sobject: str, 
+               data: pl.DataFrame = None, 
+               input_file: str = None,
+               method: str = 'rest', 
+               to_dataframe: bool = True, 
+               output_dir: str | None = 'results',
+               batch_size: int = 200, 
+               all_or_none: bool = False) -> pl.DataFrame:
+        """Execute a Batched REST or Bulk - Delete operation."""
+        try:
+            # Delete data through REST API
+            if method == 'rest':
+                results = []
+                ids = data.select('Id').to_series().to_list()
+                for batch in batched(ids, batch_size):
+                    # Prepare batched records for delete
+                    url = self._build_delete_url(batch) + f"&allOrNone={str(all_or_none).lower()}"
+                    response = requests.delete(url=url, headers=self.headers)
+                    response.raise_for_status()
+                    batch_results = response.json()
+                    # Join Fields to results
+                    for i, result in enumerate(batch_results):
+                        result['Id'] = batch[i]
+                    results.extend(batch_results)
+                return pl.DataFrame(results)
+            
+            # Delete data through Bulk2 API (Dataframe not natively supported in simple_salesforce bulk2 delete)
+            elif method == 'bulk2':
+                if data is not None:
+                    from tempfile import NamedTemporaryFile
+                    # Create a named temporary file that will be deleted when closed
+                    with NamedTemporaryFile(mode='w', delete=False, suffix='.csv') as tmp:
+                        # Write DataFrame directly to the temporary file
+                        data.select(['Id']).write_csv(tmp.name, include_header=True)
+                        # Use the temporary file for the delete operation
+                        results = getattr(self.sf.bulk2, sobject).delete(csv_file=tmp.name)
+                    # Clean up the temporary file
+                    import os
+                    os.unlink(tmp.name)
+                elif input_file is not None:
+                    results = getattr(self.sf.bulk2, sobject).delete(csv_file=input_file)
+                else:
+                    raise ValueError("Either data or input_file must be provided")
+                df = self._result_handler(results, to_dataframe, output_dir, sobject, ingest=True)
+                if to_dataframe:
+                    return df
+        except Exception as e:
+            logger.exception("Failed to execute Salesforce delete")
+            raise RuntimeError(f"Failed to execute Salesforce delete: {str(e)}")
 
     def _get_sobject_from_query(self, soql: str) -> str:
         match = re.search(r'FROM\s+(\w+)', soql, re.IGNORECASE)
@@ -178,6 +260,11 @@ class Salesforce(BaseConnector):
                 for i, data in enumerate(results):
                     with open(os.path.join(output_dir, f"part-{i+1}.csv"), "w") as bos:
                         bos.write(data)
+
+    def _build_delete_url(self, batch_ids: list) -> str:
+        """Build DELETE URL with comma-separated IDs."""
+        ids_string = ','.join(batch_ids)
+        return f"https://{self.sf.sf_instance}/services/data/v{self.version}/composite/sobjects?ids={ids_string}"
 
 
 
